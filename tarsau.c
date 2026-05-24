@@ -21,8 +21,8 @@ int is_text_file(const char *path)
     int c;
     while ((c = fgetc(f)) != EOF)
     {
-        /* NULL byte varsa binary dosyadır */
-        if (c < 0 || c > 127 || c == 0)
+        /* NULL byte varsa binary dosyadır (Türkçe UTF-8 karakterlerin geçmesi için c > 127 kontrolü kaldırıldı) */
+        if (c == 0)
         {
             fclose(f);
             return 0;
@@ -103,21 +103,23 @@ void parse_args(int argc, char *argv[], Args *args)
         else if (strcmp(argv[i], "-a") == 0)
         {
             args->mode = 1;
-            i++;
-            if (i >= argc)
+            
+            /* -a parametresinden sonra en fazla 2 parametre almalıdır */
+            int remaining_args = argc - (i + 1);
+            if (remaining_args < 1)
                 die("Hata: -a parametresinden sonra arsiv dosyasi bekleniyor.");
+            if (remaining_args > 2)
+                die("Hata: -a parametresinden sonra en fazla 2 parametre alinabilir.");
 
-            /* --- EKSİK OLAN .sau UZANTI KONTROLÜ --- */
-            size_t len = strlen(argv[i]);
-            if (len < 4 || strcmp(argv[i] + len - 4, ".sau") != 0)
+            /* Arşiv dosyası kontrolü (Tırnak işaretleri kaldırıldı) */
+            size_t len = strlen(argv[i + 1]);
+            if (len < 4 || strcmp(argv[i + 1] + len - 4, ".sau") != 0)
             {
-                /* Yönergedeki tek tırnaklı Türkçe mesaj (UTF-8/Hex karşılığı ile) */
-                die("'Ar\xc5\x9fiv dosyas\xc4\xb1 uygunsuz veya bozuk!'");
+                die("Ar\xc5\x9fiv dosyas\xc4\xb1 uygunsuz veya bozuk!");
             }
-            /* --------------------------------------- */
 
-            snprintf(args->archive, sizeof(args->archive), "%s", argv[i]);
-            i++;
+            snprintf(args->archive, sizeof(args->archive), "%s", argv[i + 1]);
+            i += 2;
 
             /* Opsiyonel: hedef dizin */
             if (i < argc && argv[i][0] != '-')
@@ -164,8 +166,8 @@ void create_archive(Args *args)
         {
             const char *bn = strrchr(path, '/');
             bn = bn ? bn + 1 : path;
-            /* BAŞA VE SONA \" EKLENDİ */
-            fprintf(stderr, "\"%s giri\xc5\x9f dosyas\xc4\xb1n\xc4\xb1n format\xc4\xb1 uyumsuzdur!\"\n", bn);
+            /* BAŞTAKİ VE SONDAKİ tırnaklar kaldırıldı */
+            fprintf(stderr, "%s giri\xc5\x9f dosyas\xc4\xb1n\xc4\xb1n format\xc4\xb1 uyumsuzdur!\n", bn);
             exit(1);
         }
         if (!S_ISREG(st.st_mode) || !is_text_file(path))
@@ -173,8 +175,8 @@ void create_archive(Args *args)
             /* Sadece dosya adını al */
             const char *bn = strrchr(path, '/');
             bn = bn ? bn + 1 : path;
-            /* BAŞA VE SONA \" EKLENDİ */
-            fprintf(stderr, "\"%s giri\xc5\x9f dosyas\xc4\xb1n\xc4\xb1n format\xc4\xb1 uyumsuzdur!\"\n", bn);
+            /* BAŞTAKİ VE SONDAKİ tırnaklar kaldırıldı */
+            fprintf(stderr, "%s giri\xc5\x9f dosyas\xc4\xb1n\xc4\xb1n format\xc4\xb1 uyumsuzdur!\n", bn);
             exit(1);
         }
 
@@ -189,7 +191,19 @@ void create_archive(Args *args)
         else
             basename = path;
 
-        snprintf(entries[i].name, MAX_FILENAME, "%s", basename);
+        /* Dosya adında virgül veya dikey çizgi kontrolü */
+        if (strchr(basename, ',') || strchr(basename, '|'))
+        {
+            fprintf(stderr, "Hata: Dosya adi ',' veya '|' karakterlerini iceremez: %s\n", basename);
+            exit(1);
+        }
+
+        /* Derleyici uyarısını önlemek için sınır kontrolü yapıp strcpy kullandık */
+        if (strlen(basename) >= MAX_FILENAME)
+        {
+            die("Hata: Giris dosya adi 256 karakterden uzun olamaz.");
+        }
+        strcpy(entries[i].name, basename);
         entries[i].permissions = st.st_mode & 0777;
         entries[i].size = st.st_size;
     }
@@ -208,7 +222,7 @@ void create_archive(Args *args)
                                entries[i].permissions,
                                entries[i].size);
         if (written < 0 || (size_t)written >= sizeof(index_buf) - index_pos)
-            die("Hata: Index bolutu cok buyuk.");
+            die("Hata: Index boyutu cok buyuk.");
         index_pos += written;
     }
     index_buf[index_pos] = '\0';
@@ -261,13 +275,14 @@ void extract_archive(Args *args)
 {
     FILE *arc = fopen(args->archive, "rb");
     if (!arc)
-        die("'Ar\xc5\x9fiv dosyas\xc4\xb1 uygunsuz veya bozuk!'");
+        die("Ar\xc5\x9fiv dosyas\xc4\xb1 uygunsuz veya bozuk!");
+
     /* 1) İlk 10 byte: index uzunluğu */
     char len_str[INDEX_LEN_BYTES + 1];
     if (fread(len_str, 1, INDEX_LEN_BYTES, arc) != (size_t)INDEX_LEN_BYTES)
     {
         fclose(arc);
-        die("'Ar\xc5\x9fiv dosyas\xc4\xb1 uygunsuz veya bozuk!'");
+        die("Ar\xc5\x9fiv dosyas\xc4\xb1 uygunsuz veya bozuk!");
     }
     len_str[INDEX_LEN_BYTES] = '\0';
 
@@ -277,14 +292,14 @@ void extract_archive(Args *args)
         if (len_str[i] < '0' || len_str[i] > '9')
         {
             fclose(arc);
-            die("'Ar\xc5\x9fiv dosyas\xc4\xb1 uygunsuz veya bozuk!'");
+            die("Ar\xc5\x9fiv dosyas\xc4\xb1 uygunsuz veya bozuk!");
         }
     }
     int index_len = atoi(len_str);
-    if (index_len <= 0)
+    if (index_len <= 0 || index_len > 100000)
     {
         fclose(arc);
-        die("'Ar\xc5\x9fiv dosyas\xc4\xb1 uygunsuz veya bozuk!'");
+        die("Ar\xc5\x9fiv dosyas\xc4\xb1 uygunsuz veya bozuk!");
     }
 
     /* 2) Index bölümünü oku */
@@ -296,17 +311,25 @@ void extract_archive(Args *args)
     {
         free(index_buf);
         fclose(arc);
-        die("'Ar\xc5\x9fiv dosyas\xc4\xb1 uygunsuz veya bozuk!'");
+        die("Ar\xc5\x9fiv dosyas\xc4\xb1 uygunsuz veya bozuk!");
     }
     index_buf[index_len] = '\0';
 
     /* 3) Index bölümünü parse et: |ad,izin,boyut| */
     FileEntry entries[MAX_FILES];
     int entry_count = 0;
+    long total_size = 0;
 
     char *p = index_buf;
-    while (*p && entry_count < MAX_FILES)
+    while (*p)
     {
+        if (entry_count >= MAX_FILES)
+        {
+            free(index_buf);
+            fclose(arc);
+            die("Ar\xc5\x9fiv dosyas\xc4\xb1 uygunsuz veya bozuk!");
+        }
+
         if (*p != '|')
         {
             p++;
@@ -329,12 +352,46 @@ void extract_archive(Args *args)
         {
             free(index_buf);
             fclose(arc);
-            die("'Ar\xc5\x9fiv dosyas\xc4\xb1 uygunsuz veya bozuk!'");
+            die("Ar\xc5\x9fiv dosyas\xc4\xb1 uygunsuz veya bozuk!");
+        }
+
+        /* Path Traversal Koruması */
+        if (strchr(name, '/') || strchr(name, '\\') || strstr(name, ".."))
+        {
+            free(index_buf);
+            fclose(arc);
+            die("Ar\xc5\x9fiv dosyas\xc4\xb1 uygunsuz veya bozuk!");
+        }
+
+        /* Negatif boyut ve limit kontrolleri */
+        long size = atol(szstr);
+        if (size < 0)
+        {
+            free(index_buf);
+            fclose(arc);
+            die("Ar\xc5\x9fiv dosyas\xc4\xb1 uygunsuz veya bozuk!");
+        }
+        total_size += size;
+        if (total_size > (long)MAX_TOTAL_SIZE)
+        {
+            free(index_buf);
+            fclose(arc);
+            die("Ar\xc5\x9fiv dosyas\xc4\xb1 uygunsuz veya bozuk!");
+        }
+
+        /* İzin sayısal doğrulama */
+        char *endptr;
+        long perm_val = strtol(perm, &endptr, 8);
+        if (*endptr != '\0' || perm_val < 0 || perm_val > 0777)
+        {
+            free(index_buf);
+            fclose(arc);
+            die("Ar\xc5\x9fiv dosyas\xc4\xb1 uygunsuz veya bozuk!");
         }
 
         snprintf(entries[entry_count].name, MAX_FILENAME, "%s", name);
-        entries[entry_count].permissions = (mode_t)strtol(perm, NULL, 8);
-        entries[entry_count].size = atol(szstr);
+        entries[entry_count].permissions = (mode_t)perm_val;
+        entries[entry_count].size = size;
         entry_count++;
 
         p = end + 1;
@@ -344,7 +401,7 @@ void extract_archive(Args *args)
     if (entry_count == 0)
     {
         fclose(arc);
-        die("'Ar\xc5\x9fiv dosyas\xc4\xb1 uygunsuz veya bozuk!'");
+        die("Ar\xc5\x9fiv dosyas\xc4\xb1 uygunsuz veya bozuk!");
     }
 
     /* 4) Hedef dizini oluştur */
@@ -355,8 +412,13 @@ void extract_archive(Args *args)
     for (int i = 0; i < entry_count; i++)
     {
         char out_path[MAX_PATH];
-        snprintf(out_path, sizeof(out_path), "%s/%s",
-                 args->directory, entries[i].name);
+        /* Derleyici uyarısını önlemek için sınır kontrolü yapıp sprintf kullandık */
+        if (strlen(args->directory) + 1 + strlen(entries[i].name) >= sizeof(out_path))
+        {
+            fclose(arc);
+            die("Hata: Hedef dosya yolu limitini asiyor.");
+        }
+        sprintf(out_path, "%s/%s", args->directory, entries[i].name);
 
         FILE *out = fopen(out_path, "wb");
         if (!out)
@@ -379,7 +441,7 @@ void extract_archive(Args *args)
             {
                 fclose(out);
                 fclose(arc);
-                die("'Ar\xc5\x9fiv dosyas\xc4\xb1 uygunsuz veya bozuk!'");
+                die("Ar\xc5\x9fiv dosyas\xc4\xb1 uygunsuz veya bozuk!");
             }
             fwrite(buf, 1, n, out);
             remaining -= (long)n;
