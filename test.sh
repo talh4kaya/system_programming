@@ -67,7 +67,7 @@ else err "t1.txt icerigi ESLESMEDI"; fi
 # --- TEST 5: Binary dosya reddi ---
 echo ""
 echo "--- Test 5: Binary dosya reddedilmeli ---"
-./tarsau -b binary.bin -o binary.sau 2>&1 | grep -q "Binary\|binary\|Hata"
+./tarsau -b binary.bin -o binary.sau 2>&1 | grep -q -E "Binary|binary|Hata"
 if [ $? -eq 0 ]; then ok "Binary dosya reddedildi"
 else err "Binary dosya kabul edildi (olmamali)"; fi
 
@@ -75,7 +75,7 @@ else err "Binary dosya kabul edildi (olmamali)"; fi
 echo ""
 echo "--- Test 6: Bozuk arsiv tespiti ---"
 echo "BOZUKDOSYA" > corrupt.sau
-./tarsau -a corrupt.sau 2>&1 | grep -q "uygunsuz\|bozuk"
+./tarsau -a corrupt.sau 2>&1 | grep -q -E "uygunsuz|bozuk"
 if [ $? -eq 0 ]; then ok "Bozuk arsiv tespit edildi"
 else err "Bozuk arsiv tespit EDILEMEDi"; fi
 rm -f corrupt.sau
