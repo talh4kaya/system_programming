@@ -18,6 +18,11 @@
 #define INDEX_LEN_BYTES  10
 #define DEFAULT_OUTPUT   "a.sau"
 
+#ifdef _WIN32
+#include <direct.h>
+#define mkdir(path, mode) _mkdir(path)
+#endif
+
 typedef struct {
     char name[MAX_FILENAME];
     mode_t permissions;
