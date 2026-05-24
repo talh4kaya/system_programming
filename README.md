@@ -3,6 +3,7 @@
 Sistem Programlama 2025-2026 Dönemi Proje Ödevi
 
 Mehmet Zahid GÖRGEÇ - Talha KAYA
+
 G221210060 - G221210063
 
 ## Derleme
